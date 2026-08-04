@@ -1,5 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-
-    <style name="Theme.OpenPhotos" parent="android:Theme.Material.Light.NoActionBar" />
+    <!--
+        Window background is set to Void (#0A0B10) to prevent the white flash
+        that otherwise appears during cold start before Compose renders.
+        All other theming lives in the Compose theme (OpenPhotosTheme).
+    -->
+    <style name="Theme.OpenPhotos" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/void_bg</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+    </style>
 </resources>
