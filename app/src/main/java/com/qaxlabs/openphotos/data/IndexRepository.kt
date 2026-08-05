@@ -37,18 +37,19 @@ sealed class SyncState {
 
 /**
  * Manages the serverless vault index stored as a JSON Document in the user's
- * own Telegram Saved Messages (FR-INDEX).
+ * dedicated private vault channel (FR-INDEX-0, FR-INDEX-1).
  *
  * ARCHITECTURE CONTRACT (tech_stack.md §3):
- * This is the ONLY class besides [TelegramAuthRepository] and [UploadRepository]
- * permitted to call [TelegramClient] directly. No ViewModel touches TDLib.
+ * This is the ONLY class besides [TelegramAuthRepository], [UploadRepository],
+ * and [VaultChannelRepository] permitted to call [TelegramClient] directly.
+ * No ViewModel touches TDLib.
  *
  * ### "Fixed message" strategy (FR-INDEX-1)
  * The index JSON is written to a Document named [VaultIndex.INDEX_FILENAME].
  *  - First write  → `SendMessage` → message ID cached in [SecureStore].
  *  - Subsequent   → `EditMessageMedia` → same message ID, document replaced.
  *  - After reinstall, [SecureStore] is cleared → [findIndexMessage] scans recent
- *    Saved Messages history for the file name as a fallback.
+ *    vault channel history for the file name as a fallback.
  *
  * ### Remote-wins reconciliation (FR-INDEX-4)
  * [syncFromRemote] wipes Room then re-populates from the remote index,
@@ -59,6 +60,7 @@ class IndexRepository @Inject constructor(
     private val client: TelegramClient,
     private val dao: UploadedItemDao,
     private val secureStore: SecureStore,
+    private val vaultChannelRepository: VaultChannelRepository,
     @ApplicationContext private val context: Context,
     @ApplicationScope private val scope: CoroutineScope,
 ) {
@@ -74,13 +76,10 @@ class IndexRepository @Inject constructor(
     /** Prevents concurrent push operations from racing. */
     private val pushMutex = Mutex()
 
-    /** Lazily cached Saved Messages chat ID. */
-    @Volatile private var savedMessagesChatId: Long = 0L
-
     // ── Public API ─────────────────────────────────────────────────────────────
 
     /**
-     * Pulls the remote index from Saved Messages and reconciles it into Room.
+     * Pulls the remote index from the vault channel and reconciles it into Room.
      *
      * FR-INDEX-2: Called on every successful login (including on a fresh install
      * against an account that already has uploads).
@@ -92,7 +91,7 @@ class IndexRepository @Inject constructor(
     suspend fun syncFromRemote() {
         _syncState.value = SyncState.Syncing
         try {
-            val chatId = getSavedMessagesChatId()
+            val chatId = vaultChannelRepository.getOrCreateVaultChannel()
             val indexMessage = findIndexMessage(chatId)
 
             if (indexMessage != null) {
@@ -120,7 +119,7 @@ class IndexRepository @Inject constructor(
     }
 
     /**
-     * Builds the full index from Room and writes/edits it in Saved Messages.
+     * Builds the full index from Room and writes/edits it in the vault channel.
      *
      * FR-INDEX-1: Called after every successful upload or deletion.
      * Serialised via [pushMutex] so concurrent calls (e.g. rapid uploads) don't
@@ -131,7 +130,7 @@ class IndexRepository @Inject constructor(
     suspend fun pushIndex() {
         pushMutex.withLock {
             try {
-                val chatId = getSavedMessagesChatId()
+                val chatId = vaultChannelRepository.getOrCreateVaultChannel()
 
                 // Build the JSON from the current Room contents
                 val entities = dao.getAllOnce()
@@ -216,11 +215,11 @@ class IndexRepository @Inject constructor(
     }
 
     /**
-     * Finds the index Document message in Saved Messages.
+     * Finds the index Document message in the vault channel.
      *
      * Strategy (ordered by cost):
      * 1. Use cached message ID from [SecureStore] (O(1), no network).
-     * 2. Scan up to 200 recent messages in Saved Messages for the index file name.
+     * 2. Scan up to 200 recent messages in the vault channel for the index file name.
      * 3. Return null if not found (first install / user manually deleted it).
      */
     private suspend fun findIndexMessage(chatId: Long): TdApi.Message? {
@@ -242,7 +241,7 @@ class IndexRepository @Inject constructor(
     }
 
     /**
-     * Walks backward through Saved Messages history looking for the index Document.
+     * Walks backward through vault channel history looking for the index Document.
      * Scans at most 200 messages (2 × 100-message pages) before giving up.
      */
     private suspend fun scanHistoryForIndex(chatId: Long): TdApi.Message? {
@@ -303,15 +302,6 @@ class IndexRepository @Inject constructor(
         return File(completed.file.local.path).readText()
     }
 
-    // ── Private — helpers ──────────────────────────────────────────────────────
-
-    private suspend fun getSavedMessagesChatId(): Long {
-        if (savedMessagesChatId != 0L) return savedMessagesChatId
-        val me   = client.send(TdApi.GetMe()) as TdApi.User
-        val chat = client.send(TdApi.CreatePrivateChat(me.id, false)) as TdApi.Chat
-        savedMessagesChatId = chat.id
-        return chat.id
-    }
 }
 
 // ── Conversion extension functions ────────────────────────────────────────────

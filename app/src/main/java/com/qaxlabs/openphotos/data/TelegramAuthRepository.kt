@@ -64,6 +64,7 @@ class TelegramAuthRepository @Inject constructor(
     private val client: TelegramClient,
     private val secureStore: SecureStore,
     private val indexRepository: IndexRepository,
+    private val vaultChannelRepository: VaultChannelRepository,
     @ApplicationContext private val context: Context,
     @ApplicationScope private val scope: CoroutineScope,
 ) {
@@ -126,10 +127,15 @@ class TelegramAuthRepository @Inject constructor(
                 secureStore.setPhoneNumber(phone)
                 _authState.value = AuthState.Authenticated(phone)
 
-                // FR-INDEX-2: pull remote index + hydrate Room before the user
-                // sees any gallery data. Runs in a separate coroutine so it never
-                // delays the auth state update itself.
-                scope.launch { indexRepository.syncFromRemote() }
+                // FR-INDEX-0: ensure the vault channel exists before any index
+                // operation (find existing or create new). Runs in a separate
+                // coroutine so it never delays the auth state update itself.
+                // FR-INDEX-2: pull remote index + hydrate Room after the channel
+                // is confirmed. Sequential: channel first, then sync.
+                scope.launch {
+                    vaultChannelRepository.getOrCreateVaultChannel()
+                    indexRepository.syncFromRemote()
+                }
             }
 
             is TdApi.AuthorizationStateLoggingOut,
@@ -226,6 +232,8 @@ class TelegramAuthRepository @Inject constructor(
         try {
             client.send(TdApi.LogOut())
         } catch (_: Exception) {}
+        // Clear cached vault channel ID so a fresh login re-validates the channel.
+        vaultChannelRepository.clearCachedChannelId()
         secureStore.clear()
     }
 }

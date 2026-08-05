@@ -85,9 +85,16 @@ app.
   4GB Premium) are flagged before upload starts, not after failing partway.
 
 ### FR-INDEX — Serverless Index Sync
+- FR-INDEX-0: On login, the app searches the user's Telegram chat list for
+  an existing private vault channel titled exactly `OpenPhotos Vault` with
+  About text exactly `vault-marker:openphotos-v1`. If found, it's reused;
+  if not, the app creates a new private channel with that exact title and
+  About text, with the user as sole member/owner. All uploads and the
+  index live in this channel, never in Saved Messages — keeps the vault
+  isolated from the user's own unrelated Telegram activity.
 - FR-INDEX-1: After every successful upload or deletion, the app updates a
-  JSON index and writes it back to a fixed location in the user's own
-  Telegram account (Saved Messages).
+  JSON index and writes it back to a fixed, pinned message inside the
+  private vault channel (from FR-INDEX-0).
 - FR-INDEX-2: On login (including on a second device), the app pulls the
   latest index from Telegram and reconciles it against the local cache.
 - FR-INDEX-3: The index includes enough metadata (filename, size, checksum,
@@ -151,8 +158,8 @@ app.
 
 **Second device, same account**
 1. Install app on second device → same login flow.
-2. App pulls the index from Saved Messages → local gallery populates without
-   re-uploading anything.
+2. App locates the existing private vault channel (FR-INDEX-0) and pulls the
+   index from it → local gallery populates without re-uploading anything.
 
 **Viewing and deleting an item**
 1. Tap a thumbnail → full-screen viewer, swipe to adjacent items.
@@ -170,9 +177,14 @@ app.
   automatically rather than dropping remaining items.
 - Local cache and remote index diverge after an offline period.
 - File exceeds the account's size ceiling (2GB/4GB).
-- User deletes the Saved Messages index entry manually from Telegram itself
-  — app should detect a missing index and offer to rebuild it from the
-  device's local cache, or from scanning message history as a fallback.
+- User deletes the pinned index message, or the whole vault channel, manually
+  from Telegram itself — app should detect a missing index and offer to
+  rebuild it from the device's local cache, or from scanning the channel's
+  message history as a fallback.
+- User leaves or accidentally deletes the vault channel entirely — since
+  they're the sole owner, this is destructive and unrecoverable; consider
+  a confirmation step in Settings if the app ever offers a "leave/delete
+  channel" action (it shouldn't by default).
 
 ## 10. Constraints & Assumptions
 - Fully dependent on Telegram's continued API availability, size limits, and

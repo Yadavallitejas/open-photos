@@ -51,11 +51,13 @@ private const val MAX_RETRIES = 3
 private const val UPLOAD_TIMEOUT_MS = 30L * 60 * 1_000
 
 /**
- * Sequential upload queue that backs up device media to Telegram Saved Messages.
+ * Sequential upload queue that backs up device media to the dedicated
+ * OpenPhotos Vault broadcast channel (FR-INDEX-0).
  *
  * ARCHITECTURE CONTRACT (tech_stack.md §3):
- * This is the ONLY class besides [TelegramAuthRepository] permitted to call
- * [TelegramClient] directly. No ViewModel or UI class may touch TDLib.
+ * This is the ONLY class besides [TelegramAuthRepository], [VaultChannelRepository],
+ * and [IndexRepository] permitted to call [TelegramClient] directly.
+ * No ViewModel or UI class may touch TDLib.
  *
  * Queue semantics (FR-UPLOAD-2):
  *   Items are processed one at a time. The processor coroutine blocks on each
@@ -72,6 +74,7 @@ class UploadRepository @Inject constructor(
     private val client: TelegramClient,
     private val dao: UploadedItemDao,
     private val indexRepository: IndexRepository,
+    private val vaultChannelRepository: VaultChannelRepository,
     @ApplicationContext private val context: Context,
     @ApplicationScope private val scope: CoroutineScope,
 ) {
@@ -87,13 +90,6 @@ class UploadRepository @Inject constructor(
      * collapse to a single pending "wake-up" signal, preventing redundant iterations.
      */
     private val workSignal = Channel<Unit>(Channel.CONFLATED)
-
-    /**
-     * Lazily cached Saved Messages chat ID. Populated on the first upload and
-     * reused for all subsequent items. Avoids a GetMe + CreatePrivateChat round-
-     * trip per file.
-     */
-    @Volatile private var savedMessagesChatId: Long = 0L
 
     init {
         // Single processor coroutine — lives for the entire app lifetime.
@@ -215,8 +211,8 @@ class UploadRepository @Inject constructor(
             return
         }
 
-        // 2. Lazily resolve Saved Messages chat ID.
-        val chatId = getSavedMessagesChatId()
+        // 2. Resolve the vault channel chat ID (FR-INDEX-0).
+        val chatId = vaultChannelRepository.getOrCreateVaultChannel()
 
         // 3. Build the Document message — FR-UPLOAD-1: always Document, never Photo/Video.
         //    disableContentTypeDetection = true → TDLib never re-classifies as Photo/Video.
@@ -295,14 +291,6 @@ class UploadRepository @Inject constructor(
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
-
-    private suspend fun getSavedMessagesChatId(): Long {
-        if (savedMessagesChatId != 0L) return savedMessagesChatId
-        val me   = client.send(TdApi.GetMe()) as TdApi.User
-        val chat = client.send(TdApi.CreatePrivateChat(me.id, false)) as TdApi.Chat
-        savedMessagesChatId = chat.id
-        return chat.id
-    }
 
     /** Extracts the TDLib file ID from a just-sent Document message. */
     private fun extractFileId(message: TdApi.Message): Int {

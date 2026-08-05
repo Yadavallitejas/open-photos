@@ -13,9 +13,22 @@ backend server.
 
 ## 2. Core architecture decisions (locked in)
 - **No backend server.** The index of uploaded files is a JSON blob kept in
-  the user's own Saved Messages, updated after every change. Any device that
-  logs into the same Telegram account can pull it down. This is what keeps
-  the "your data lives only in your Telegram account" promise true.
+  a dedicated private Telegram channel the app creates for the user (not
+  Saved Messages), updated after every change. Any device that logs into
+  the same Telegram account can pull it down. This is what keeps the "your
+  data lives only in your Telegram account" promise true.
+- **Storage destination: a dedicated private vault channel, not Saved
+  Messages.** Saved Messages is a space the user already fills with
+  unrelated forwards and notes — mixing the vault's files and index
+  message into that stream risks accidental deletion and makes the index
+  harder to reliably locate. A private channel (invite-only, user is the
+  sole member and owner/admin) keeps the vault fully isolated, still
+  entirely within the user's own account. Fixed identifiers: title
+  `OpenPhotos Vault`, About text `vault-marker:openphotos-v1`. On first
+  login, the app checks the user's chat list for a channel matching both;
+  if found, it's reused — this is how a second device locates the same
+  vault without needing to store the channel ID anywhere outside Telegram.
+  If not found, the app creates it with those exact values.
 - **Files upload as Documents, never as Photo/Video.** Telegram compresses
   anything sent inline; Document mode skips that and preserves full quality,
   up to the account's real ceiling (2GB free / 4GB Premium per file).
@@ -38,9 +51,9 @@ backend server.
 ## 3. Local storage
 - Room DB (mirrors your LifeForge pattern) as a fast local **cache** of the
   index — not the source of truth.
-- Source of truth = the JSON blob in Saved Messages. On login: pull it down,
-  hydrate Room. After every upload/delete: update Room, then push the updated
-  blob back up.
+- Source of truth = the JSON blob pinned in the private vault channel. On
+  login: locate/create the channel, pull the blob down, hydrate Room. After
+  every upload/delete: update Room, then push the updated blob back up.
 
 ## 4. Auth flow
 1. First-run screen: short explainer + link to my.telegram.org + two fields
@@ -52,8 +65,8 @@ backend server.
 
 ## 5. Upload pipeline
 1. MediaStore query → grid of device photos/videos, multi-select.
-2. Selected files sent via TDLib as Document to Saved Messages (or a
-   dedicated "vault" channel — decide once v0.2 is running).
+2. Selected files sent via TDLib as Document to the private vault channel
+   (decided: not Saved Messages — see §2).
 3. On success: append `{id, messageId, filename, sizeBytes, checksum,
    takenAt, uploadedAt}` to the index, update Room, push the updated blob.
 4. **Sequential upload queue with backoff**, honoring TDLib's flood-wait
@@ -94,9 +107,10 @@ agent skip ahead.
   +91XXXXXXXXXX."
 - **v0.2 — Manual upload, local only.** MediaStore picker, multi-select,
   upload as Document, record locally in Room. No Telegram-index-sync yet.
-- **v0.3 — Serverless index sync.** JSON blob read/write to Saved Messages;
-  this is the piece that makes multi-device possible later. Test by wiping
-  local Room and re-hydrating from the Telegram blob.
+- **v0.3 — Serverless index sync.** Private vault channel creation/discovery,
+  plus JSON blob read/write to it; this is the piece that makes multi-device
+  possible later. Test by wiping local Room and re-hydrating from the
+  channel.
 - **v0.4 — Gallery UI.** Grid, thumbnails, lazy full-res fetch on tap —
   the actual Google-Photos-like experience.
 - **v0.5 — Background auto-backup.** WorkManager-driven, watches for new
