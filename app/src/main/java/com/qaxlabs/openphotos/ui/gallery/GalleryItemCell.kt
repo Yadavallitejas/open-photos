@@ -39,6 +39,7 @@ import com.qaxlabs.openphotos.ui.theme.Panel
 fun GalleryItemCell(
     indexId: String,
     uriString: String,
+    thumbnailPath: String? = null,
     displayName: String,
     isVideo: Boolean,
     isUploading: Boolean,
@@ -61,6 +62,16 @@ fun GalleryItemCell(
         Modifier
     }
 
+    val imageModel = remember(thumbnailPath, uriString) {
+        if (!thumbnailPath.isNullOrEmpty()) {
+            java.io.File(thumbnailPath)
+        } else if (uriString.startsWith("file://")) {
+            java.io.File(uriString.removePrefix("file://"))
+        } else {
+            Uri.parse(uriString)
+        }
+    }
+
     Box(
         modifier = modifier
             .aspectRatio(1f)
@@ -71,7 +82,7 @@ fun GalleryItemCell(
         // ── Thumbnail ──────────────────────────────────────────────────────────
         AsyncImage(
             model = ImageRequest.Builder(LocalContext.current)
-                .data(Uri.parse(uriString))
+                .data(imageModel)
                 .crossfade(true)
                 .size(240)
                 .build(),

@@ -102,6 +102,7 @@ fun GalleryScreen(
                     GalleryItemCell(
                         indexId = item.indexId,
                         uriString = item.localUri,
+                        thumbnailPath = item.thumbnailPath,
                         displayName = item.displayName,
                         isVideo = item.isVideo,
                         isUploading = item.isUploading,

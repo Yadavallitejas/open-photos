@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- vault_fullres: full-resolution files cached for viewer playback -->
+    <cache-path name="vault_fullres" path="vault_fullres/" />
+    <!-- vault_thumbnails: preview thumbnail cache -->
+    <cache-path name="vault_thumbnails" path="vault_thumbnails/" />
+</paths>

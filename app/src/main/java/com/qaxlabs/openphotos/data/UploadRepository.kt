@@ -211,27 +211,33 @@ class UploadRepository @Inject constructor(
             return
         }
 
+        // 1c. Generate small JPEG thumbnail (FR-UPLOAD-6)
+        val thumbInfo = com.qaxlabs.openphotos.data.util.ThumbnailGenerator.generateThumbnail(context, item.mediaItem)
+        val inputThumbnail = thumbInfo?.let {
+            TdApi.InputThumbnail(
+                TdApi.InputFileLocal(it.file.absolutePath),
+                it.width,
+                it.height,
+            )
+        }
+
         // 2. Resolve the vault channel chat ID (FR-INDEX-0).
         val chatId = vaultChannelRepository.getOrCreateVaultChannel()
 
-        // 3. Build the Document message — FR-UPLOAD-1: always Document, never Photo/Video.
-        //    disableContentTypeDetection = true → TDLib never re-classifies as Photo/Video.
+        // 3. Build the Document message with thumbnail (FR-UPLOAD-1, FR-UPLOAD-6).
         val inputContent = TdApi.InputMessageDocument(
             TdApi.InputFileLocal(absolutePath),
-            null,   // thumbnail — let Telegram generate it server-side
+            inputThumbnail,
             true,   // disableContentTypeDetection → keeps it as a raw Document
             null,   // caption
         )
 
         // 4. Send the message. TDLib returns a temporary message with a negative ID.
-        //    Use field assignment to avoid positional constructor issues across TDLib versions.
         val sendReq = TdApi.SendMessage().also { m ->
             m.chatId = chatId
             m.inputMessageContent = inputContent
-            // replyTo, messageThreadId, options, replyMarkup: leave as default (null/0)
         }
         val tempMessage = client.send(sendReq) as TdApi.Message
-
 
         val tempMessageId = tempMessage.id         // negative (local-only) ID
         val fileId = extractFileId(tempMessage)    // TDLib file ID for progress tracking
@@ -260,14 +266,14 @@ class UploadRepository @Inject constructor(
             }
         } finally {
             progressJob.cancel()    // stop progress collection regardless of outcome
+            thumbInfo?.file?.delete()  // clean up temp generated thumbnail file
         }
 
         val realMessageId = successUpdate.message.id
+        val messageContent = successUpdate.message.content as? TdApi.MessageDocument
+        val remoteThumbId = messageContent?.document?.thumbnail?.file?.remote?.id ?: ""
 
-        // 7. Reuse SHA-256 computed above for the index (FR-INDEX-3 checksum requirement).
-        //    (already computed at start of doUpload)
-
-        // 8. Persist to Room — includes the new indexId and sha256 for FR-INDEX.
+        // 7. Persist to Room — includes the new indexId, sha256, and thumbnailRemoteId for FR-INDEX.
         dao.insert(
             UploadedItemEntity(
                 indexId           = item.id,   // queue item UUID doubles as stable index ID
@@ -280,6 +286,7 @@ class UploadRepository @Inject constructor(
                 telegramChatId    = chatId,
                 telegramMessageId = realMessageId,
                 uploadedAt        = System.currentTimeMillis(),
+                thumbnailRemoteId = remoteThumbId,
             )
         )
 

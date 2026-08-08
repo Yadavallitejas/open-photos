@@ -13,6 +13,11 @@
         android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
 
+    <!-- Write to MediaStore (legacy Download action — pre-Q only) -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+
     <!--
          WorkManager needs this so it can reschedule periodic jobs after a
          device reboot. Without it, work scheduled before a reboot is lost.
@@ -57,6 +62,20 @@
                 android:name="androidx.work.WorkManagerInitializer"
                 android:value="androidx.startup"
                 tools:node="remove" />
+        </provider>
+
+        <!--
+             FileProvider for sharing cached full-resolution files with external
+             video player apps (FR-GALLERY-3 video playback).
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_provider_paths" />
         </provider>
 
     </application>

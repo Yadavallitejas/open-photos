@@ -308,16 +308,17 @@ class IndexRepository @Inject constructor(
 
 /** Converts a Room entity to a JSON index entry for [IndexRepository.pushIndex]. */
 fun UploadedItemEntity.toIndexEntry(): VaultIndexEntry = VaultIndexEntry(
-    id          = indexId,
-    messageId   = telegramMessageId,
-    filename    = displayName,
-    sizeBytes   = sizeBytes,
-    checksum    = sha256,
-    takenAt     = Instant.ofEpochMilli(takenAt).toString(),
-    uploadedAt  = Instant.ofEpochMilli(uploadedAt).toString(),
-    mimeType    = mimeType,
-    localUri    = localUri,
-    chatId      = telegramChatId,
+    id                = indexId,
+    messageId         = telegramMessageId,
+    filename          = displayName,
+    sizeBytes         = sizeBytes,
+    checksum          = sha256,
+    takenAt           = Instant.ofEpochMilli(takenAt).toString(),
+    uploadedAt        = Instant.ofEpochMilli(uploadedAt).toString(),
+    mimeType          = mimeType,
+    localUri          = localUri,
+    chatId            = telegramChatId,
+    thumbnailRemoteId = thumbnailRemoteId,
 )
 
 /**
@@ -337,4 +338,5 @@ fun VaultIndexEntry.toEntity(chatId: Long): UploadedItemEntity = UploadedItemEnt
     telegramChatId    = if (this.chatId != 0L) this.chatId else chatId,
     telegramMessageId = messageId,
     uploadedAt        = runCatching { Instant.parse(uploadedAt).toEpochMilli() }.getOrDefault(0L),
+    thumbnailRemoteId = thumbnailRemoteId,
 )

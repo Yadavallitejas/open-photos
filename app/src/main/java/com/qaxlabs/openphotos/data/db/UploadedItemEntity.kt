@@ -50,4 +50,7 @@ data class UploadedItemEntity(
 
     /** Wall-clock milliseconds when the upload completed (System.currentTimeMillis()). */
     val uploadedAt: Long,
+
+    /** Remote file ID of the Document thumbnail (FR-UPLOAD-6). Empty if none. */
+    val thumbnailRemoteId: String = "",
 )

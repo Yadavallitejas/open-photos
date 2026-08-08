@@ -64,6 +64,7 @@ fun AppNavGraph(
 
     // Data-driven Auth Navigation
     LaunchedEffect(authState) {
+        val currentRoute = navController.currentDestination?.route
         val dest = when (authState) {
             is AuthState.Initializing       -> return@LaunchedEffect
             is AuthState.WaitingCredentials -> Routes.CREDENTIALS
@@ -71,7 +72,10 @@ fun AppNavGraph(
             is AuthState.WaitingCode        -> Routes.OTP
             is AuthState.WaitingPassword    -> Routes.PASSWORD
             is AuthState.Authenticated      -> Routes.GALLERY
-            is AuthState.Error              -> return@LaunchedEffect
+            is AuthState.Error              -> {
+                // If an unhandled error happens while on splash, navigate to credentials screen so user can re-auth
+                if (currentRoute == null || currentRoute == Routes.SPLASH) Routes.CREDENTIALS else return@LaunchedEffect
+            }
         }
         navController.navigate(dest) {
             popUpTo(0) { inclusive = true }
@@ -87,7 +91,7 @@ fun AppNavGraph(
             exitTransition = { fadeOut(animationSpec = tween(150)) },
         ) {
             // ── Auth Flow ────────────────────────────────────────────────────────
-            composable(Routes.SPLASH) { SplashScreen() }
+            composable(Routes.SPLASH) { SplashScreen(onReset = { authVm.onBackToCredentialsRequested() }) }
             composable(Routes.CREDENTIALS) { ApiCredentialsScreen(authVm) }
             composable(Routes.PHONE) { PhoneScreen(authVm) }
             composable(Routes.OTP) { OtpScreen(authVm) }

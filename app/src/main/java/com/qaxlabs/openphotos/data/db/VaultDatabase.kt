@@ -17,7 +17,7 @@ import androidx.room.RoomDatabase
  */
 @Database(
     entities = [UploadedItemEntity::class],
-    version = 2,          // v2: adds indexId, sha256, takenAt columns
+    version = 3,          // v3: adds thumbnailRemoteId column (FR-UPLOAD-6)
     exportSchema = true,
 )
 

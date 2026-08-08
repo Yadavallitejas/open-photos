@@ -2,14 +2,20 @@ package com.qaxlabs.openphotos.data
 
 import android.content.Context
 import android.os.Build
+import android.util.Log
 import com.qaxlabs.openphotos.BuildConfig
+import com.qaxlabs.openphotos.data.db.UploadedItemDao
 import com.qaxlabs.openphotos.data.di.ApplicationScope
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.filterIsInstance
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import org.drinkless.tdlib.TdApi
 import java.util.Locale
 import javax.inject.Inject
@@ -65,9 +71,15 @@ class TelegramAuthRepository @Inject constructor(
     private val secureStore: SecureStore,
     private val indexRepository: IndexRepository,
     private val vaultChannelRepository: VaultChannelRepository,
+    private val dao: UploadedItemDao,
+    private val uploadRepository: UploadRepository,
     @ApplicationContext private val context: Context,
     @ApplicationScope private val scope: CoroutineScope,
 ) {
+    companion object {
+        private const val TAG = "TelegramAuthRepository"
+    }
+
     private val _authState = MutableStateFlow<AuthState>(AuthState.Initializing)
     val authState: StateFlow<AuthState> = _authState.asStateFlow()
 
@@ -77,10 +89,22 @@ class TelegramAuthRepository @Inject constructor(
             client.create()
 
             // Collect every TDLib update and forward auth-state changes.
-            client.updates.collect { update ->
-                if (update is TdApi.UpdateAuthorizationState) {
-                    handleAuthorizationState(update.authorizationState)
+            launch {
+                client.updates.collect { update ->
+                    if (update is TdApi.UpdateAuthorizationState) {
+                        handleAuthorizationState(update.authorizationState)
+                    }
                 }
+            }
+
+            // Actively query TDLib for its current authorization state on launch
+            runCatching {
+                val state = client.send(TdApi.GetAuthorizationState())
+                if (state is TdApi.AuthorizationState) {
+                    handleAuthorizationState(state)
+                }
+            }.onFailure { e ->
+                Log.w(TAG, "Failed to query initial authorization state: ${e.message}")
             }
         }
     }
@@ -96,7 +120,12 @@ class TelegramAuthRepository @Inject constructor(
                 if (savedId != null && savedHash != null) {
                     // Stay in Initializing — the next state update will navigate the UI.
                     runCatching { initTdLib(savedId, savedHash) }
-                        .onFailure { _authState.value = AuthState.Error(it.message ?: "Init failed") }
+                        .onFailure { error ->
+                            Log.e(TAG, "Auto-initialization failed: ${error.message}", error)
+                            // If auto-init fails (e.g. invalid credentials or key corruption), clear and fallback to credentials entry
+                            secureStore.clear()
+                            _authState.value = AuthState.WaitingCredentials
+                        }
                 } else {
                     // First run — ask the user for credentials.
                     _authState.value = AuthState.WaitingCredentials
@@ -146,6 +175,7 @@ class TelegramAuthRepository @Inject constructor(
             is TdApi.AuthorizationStateClosed -> {
                 _authState.value = AuthState.Initializing
                 // Recreate the client after a clean close (e.g. logout).
+                client.destroy()
                 client.create()
             }
 
@@ -227,13 +257,43 @@ class TelegramAuthRepository @Inject constructor(
         }
     }
 
-    /** Logs out of Telegram and clears saved session credentials. */
+    /**
+     * Logs out of Telegram and clears saved session credentials (FR-AUTH-4).
+     *
+     * Sends TDLib's LogOut request, waits for TDLib to transition to
+     * [TdApi.AuthorizationStateClosed], and then clears all local database records,
+     * upload queue, and encrypted preferences. Recreates a clean [TelegramClient]
+     * instance so the app returns to a clean login state.
+     */
     suspend fun logout() {
+        _authState.value = AuthState.Initializing
         try {
-            client.send(TdApi.LogOut())
-        } catch (_: Exception) {}
-        // Clear cached vault channel ID so a fresh login re-validates the channel.
-        vaultChannelRepository.clearCachedChannelId()
-        secureStore.clear()
+            // Register update listener before sending LogOut to avoid missing the state transition.
+            val closedDeferred = scope.async {
+                withTimeoutOrNull(10_000L) {
+                    client.updates
+                        .filterIsInstance<TdApi.UpdateAuthorizationState>()
+                        .first { it.authorizationState is TdApi.AuthorizationStateClosed }
+                }
+            }
+
+            try {
+                client.send(TdApi.LogOut())
+            } catch (e: Exception) {
+                Log.w(TAG, "LogOut request failed: ${e.message}")
+            }
+
+            closedDeferred.await()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error during logout flow: ${e.message}")
+        } finally {
+            uploadRepository.clearQueue()
+            dao.clearAll()
+            vaultChannelRepository.clearCachedChannelId()
+            secureStore.clear()
+
+            client.destroy()
+            client.create()
+        }
     }
 }

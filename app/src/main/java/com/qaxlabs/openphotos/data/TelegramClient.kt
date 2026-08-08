@@ -26,7 +26,7 @@ import kotlin.coroutines.resumeWithException
 class TelegramClient @Inject constructor() {
 
     private val _updates = MutableSharedFlow<TdApi.Object>(
-        replay = 0,
+        replay = 1,
         extraBufferCapacity = 128,
     )
 
@@ -86,6 +86,14 @@ class TelegramClient @Inject constructor() {
         // Send the TdApi.Close request to initiate a clean shutdown; TDLib
         // will emit AuthorizationStateClosed which resets our state machine.
         client?.send(TdApi.Close()) { /* ignore result */ }
+        client = null
+    }
+
+    /**
+     * Resets the native client reference to null so a subsequent [create] call
+     * can instantiate a fresh native TDLib Client instance.
+     */
+    fun destroy() {
         client = null
     }
 }

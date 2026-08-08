@@ -29,4 +29,6 @@ data class VaultIndexEntry(
     val localUri: String,
     /** Saved Messages chat ID. Preserved for deletion (FR-GALLERY-4). 0 = unknown. */
     val chatId: Long = 0L,
+    /** Remote file ID of the attached Document thumbnail (FR-UPLOAD-6). Empty if none. */
+    val thumbnailRemoteId: String = "",
 )
