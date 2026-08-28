@@ -15,6 +15,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import org.drinkless.tdlib.TdApi
 import java.util.Locale
@@ -83,6 +85,9 @@ class TelegramAuthRepository @Inject constructor(
     private val _authState = MutableStateFlow<AuthState>(AuthState.Initializing)
     val authState: StateFlow<AuthState> = _authState.asStateFlow()
 
+    private val authMutex = Mutex()
+    private var hasSentParameters = false
+
     init {
         scope.launch {
             // Start the TDLib client; updates begin flowing immediately.
@@ -111,19 +116,23 @@ class TelegramAuthRepository @Inject constructor(
 
     // ── Internal state machine ─────────────────────────────────────────────
 
-    private suspend fun handleAuthorizationState(state: TdApi.AuthorizationState) {
+    private suspend fun handleAuthorizationState(state: TdApi.AuthorizationState) = authMutex.withLock {
         when (state) {
             is TdApi.AuthorizationStateWaitTdlibParameters -> {
+                if (hasSentParameters) return@withLock
+
                 // Try to auto-initialise from saved credentials (subsequent launches).
                 val savedId   = secureStore.getApiId()
                 val savedHash = secureStore.getApiHash()
                 if (savedId != null && savedHash != null) {
+                    hasSentParameters = true
                     // Stay in Initializing — the next state update will navigate the UI.
-                    runCatching { initTdLib(savedId, savedHash) }
+                    runCatching { performInitTdLib(savedId, savedHash) }
                         .onFailure { error ->
                             Log.e(TAG, "Auto-initialization failed: ${error.message}", error)
-                            // If auto-init fails (e.g. invalid credentials or key corruption), clear and fallback to credentials entry
-                            secureStore.clear()
+                            hasSentParameters = false
+                            // Keep credentials so a transient TDLib startup failure does not
+                            // turn every subsequent launch into first-run setup.
                             _authState.value = AuthState.WaitingCredentials
                         }
                 } else {
@@ -133,6 +142,7 @@ class TelegramAuthRepository @Inject constructor(
             }
 
             is TdApi.AuthorizationStateWaitPhoneNumber -> {
+                hasSentParameters = true // Ensure flag is set if we reached this state via manual entry
                 _authState.value = AuthState.WaitingPhoneNumber
             }
 
@@ -174,6 +184,7 @@ class TelegramAuthRepository @Inject constructor(
 
             is TdApi.AuthorizationStateClosed -> {
                 _authState.value = AuthState.Initializing
+                hasSentParameters = false
                 // Recreate the client after a clean close (e.g. logout).
                 client.destroy()
                 client.create()
@@ -189,9 +200,19 @@ class TelegramAuthRepository @Inject constructor(
      * Sets TDLib parameters and persists the credentials.
      * Called once on first run when the user submits api_id + api_hash.
      */
-    suspend fun initTdLib(apiId: Int, apiHash: String) {
-        secureStore.setApiId(apiId)
-        secureStore.setApiHash(apiHash)
+    suspend fun initTdLib(apiId: Int, apiHash: String) = authMutex.withLock {
+        if (hasSentParameters) return@withLock
+        hasSentParameters = true
+        try {
+            performInitTdLib(apiId, apiHash)
+        } catch (e: Exception) {
+            hasSentParameters = false
+            throw e
+        }
+    }
+
+    private suspend fun performInitTdLib(apiId: Int, apiHash: String) {
+        secureStore.setApiCredentials(apiId, apiHash)
 
         val dbKey = secureStore.tdlibDatabaseKey()
         val dbDir = context.filesDir.absolutePath + "/tdlib"

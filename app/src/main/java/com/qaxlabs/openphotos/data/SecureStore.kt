@@ -116,14 +116,25 @@ class SecureStore @Inject constructor(
     }
 
     suspend fun getApiId(): Int? =
-        context.secureDataStore.data.first()[KEY_API_ID]?.let { decrypt(it).toIntOrNull() }
+        context.secureDataStore.data.first()[KEY_API_ID]?.let {
+            runCatching { decrypt(it).toIntOrNull() }.getOrNull()
+        }
 
     suspend fun setApiHash(apiHash: String) {
         context.secureDataStore.edit { it[KEY_API_HASH] = encrypt(apiHash) }
     }
 
     suspend fun getApiHash(): String? =
-        context.secureDataStore.data.first()[KEY_API_HASH]?.let { decrypt(it) }
+        context.secureDataStore.data.first()[KEY_API_HASH]?.let {
+            runCatching { decrypt(it) }.getOrNull()
+        }
+
+    suspend fun setApiCredentials(apiId: Int, apiHash: String) {
+        context.secureDataStore.edit { prefs ->
+            prefs[KEY_API_ID] = encrypt(apiId.toString())
+            prefs[KEY_API_HASH] = encrypt(apiHash)
+        }
+    }
 
     suspend fun setPhoneNumber(phone: String) {
         context.secureDataStore.edit { it[KEY_PHONE] = encrypt(phone) }
@@ -180,6 +191,18 @@ class SecureStore @Inject constructor(
     }
 
     suspend fun clear() {
-        context.secureDataStore.edit { it.clear() }
+        context.secureDataStore.edit { prefs ->
+            // FR-AUTH-5: Preserves API ID, API Hash, and the TDLib DB key.
+            // These are tied to the app installation, not the account session.
+            val apiIdEnc   = prefs[KEY_API_ID]
+            val apiHashEnc  = prefs[KEY_API_HASH]
+            val dbKeyEnc    = prefs[KEY_TDLIB_DB]
+
+            prefs.clear()
+
+            if (apiIdEnc != null) prefs[KEY_API_ID] = apiIdEnc
+            if (apiHashEnc != null) prefs[KEY_API_HASH] = apiHashEnc
+            if (dbKeyEnc != null) prefs[KEY_TDLIB_DB] = dbKeyEnc
+        }
     }
 }
