@@ -61,9 +61,19 @@ Data Sources (TDLib JNI, Room DB cache, DataStore + Keystore, MediaStore)
 
 ---
 
-## 🛠️ Building & Setup Instructions
+## 📥 Download APK & Build Instructions
 
-### Prerequisites
+### Direct APK Download
+You can download the pre-compiled `.apk` file directly without building the source code:
+1. **GitHub Releases**: Download the latest APK asset from the **Releases** page.
+2. **GitHub Actions Artifacts**:
+   - Go to the **Actions** tab in this GitHub repository.
+   - Select the latest **Build and Deploy APK** workflow run.
+   - Scroll down to the **Artifacts** section and download `openphotos-debug-apk`.
+
+---
+
+### Prerequisites for Local Building
 - **JDK 17** (or Android Studio Ladybug/JBR 17+).
 - **Android SDK** (API 35 compileSdk, minSdk 26).
 - **Telegram API Credentials**: Obtain an `api_id` and `api_hash` for free at [my.telegram.org](https://my.telegram.org).
@@ -78,12 +88,8 @@ Data Sources (TDLib JNI, Room DB cache, DataStore + Keystore, MediaStore)
 
 2. **Compile Debug APK**:
    ```bash
-   # Linux / macOS
+   # Linux / macOS / Windows
    ./gradlew :app:assembleDebug
-
-   # Windows (PowerShell with Android Studio JBR)
-   $env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
-   .\gradlew :app:assembleDebug --no-daemon
    ```
 
 3. **Install to Connected Device / Emulator**:
