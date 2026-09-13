@@ -91,7 +91,7 @@ fun AppNavGraph(
             exitTransition = { fadeOut(animationSpec = tween(150)) },
         ) {
             // ── Auth Flow ────────────────────────────────────────────────────────
-            composable(Routes.SPLASH) { SplashScreen(onReset = { authVm.onBackToCredentialsRequested() }) }
+            composable(Routes.SPLASH) { SplashScreen() }
             composable(Routes.CREDENTIALS) { ApiCredentialsScreen(authVm) }
             composable(Routes.PHONE) { PhoneScreen(authVm) }
             composable(Routes.OTP) { OtpScreen(authVm) }

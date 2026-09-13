@@ -21,14 +21,12 @@ import kotlinx.coroutines.delay
  * Shows a reset option if loading takes more than 7 seconds.
  */
 @Composable
-fun SplashScreen(
-    onReset: (() -> Unit)? = null,
-) {
-    var showTimeoutOption by remember { mutableStateOf(false) }
+fun SplashScreen() {
+    var showTimeoutNotice by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         delay(7000L)
-        showTimeoutOption = true
+        showTimeoutNotice = true
     }
 
     Box(
@@ -50,7 +48,7 @@ fun SplashScreen(
             )
 
             AnimatedVisibility(
-                visible = showTimeoutOption,
+                visible = showTimeoutNotice,
                 enter = fadeIn(),
             ) {
                 Column(
@@ -58,22 +56,10 @@ fun SplashScreen(
                     modifier = Modifier.padding(top = 24.dp),
                 ) {
                     Text(
-                        text = "Taking longer than expected…",
+                        text = "Connecting to Telegram…",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    if (onReset != null) {
-                        Button(
-                            onClick = onReset,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.surface,
-                                contentColor = MaterialTheme.colorScheme.onSurface,
-                            ),
-                        ) {
-                            Text("Re-enter API Credentials")
-                        }
-                    }
                 }
             }
         }

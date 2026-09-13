@@ -118,18 +118,6 @@ fun PhoneScreen(vm: AuthViewModel) {
                     }
                 }
 
-                Spacer(Modifier.height(8.dp))
-
-                TextButton(
-                    onClick = { vm.onBackToCredentialsRequested() },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(
-                        "Change API credentials",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
             }
         }
     }

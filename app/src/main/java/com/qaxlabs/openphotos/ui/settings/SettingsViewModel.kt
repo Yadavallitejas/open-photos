@@ -66,7 +66,7 @@ class SettingsViewModel @Inject constructor(
      */
     fun updateCredentials(newApiId: Int, newApiHash: String) {
         viewModelScope.launch {
-            authRepository.initTdLib(newApiId, newApiHash)
+            authRepository.updateCredentials(newApiId, newApiHash)
         }
     }
 }
