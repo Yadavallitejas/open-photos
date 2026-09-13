@@ -201,12 +201,26 @@ class TelegramAuthRepository @Inject constructor(
      * Called once on first run when the user submits api_id + api_hash.
      */
     suspend fun initTdLib(apiId: Int, apiHash: String) = authMutex.withLock {
-        if (hasSentParameters) return@withLock
         hasSentParameters = true
         try {
             performInitTdLib(apiId, apiHash)
         } catch (e: Exception) {
             hasSentParameters = false
+            throw e
+        }
+    }
+
+    /**
+     * Updates stored credentials in SecureStore and re-initializes TDLib parameters.
+     */
+    suspend fun updateCredentials(apiId: Int, apiHash: String) = authMutex.withLock {
+        secureStore.setApiCredentials(apiId, apiHash)
+        hasSentParameters = true
+        try {
+            performInitTdLib(apiId, apiHash)
+        } catch (e: Exception) {
+            hasSentParameters = false
+            _authState.value = AuthState.WaitingCredentials
             throw e
         }
     }
@@ -259,7 +273,12 @@ class TelegramAuthRepository @Inject constructor(
 
     /** Resets the auth flow to the API credentials entry stage. */
     fun resetToCredentials() {
-        _authState.value = AuthState.WaitingCredentials
+        scope.launch {
+            authMutex.withLock {
+                hasSentParameters = false
+                _authState.value = AuthState.WaitingCredentials
+            }
+        }
     }
 
     /** Emits an [AuthState.Error] without touching TDLib (e.g. for local validation). */
