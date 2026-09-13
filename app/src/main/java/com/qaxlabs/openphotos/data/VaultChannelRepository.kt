@@ -99,53 +99,112 @@ class VaultChannelRepository @Inject constructor(
     // ── Private — scan ──────────────────────────────────────────────────────
 
     /**
-     * Walks up to [MAX_SCAN_PAGES] × [CHAT_PAGE_SIZE] chats in the user's
-     * loaded chat list, looking for one whose title and description both match
-     * the vault channel spec.
+     * Finds an existing vault channel across all available search strategies:
+     * 1. Server-side chat search ([TdApi.SearchChatsOnServer])
+     * 2. Local chat search ([TdApi.SearchChats])
+     * 3. Paginated chat list loading ([TdApi.LoadChats] + [TdApi.GetChats])
      *
-     * TDLib's [TdApi.GetChats] returns IDs in order of recent activity.
-     * We pass the last-seen chat's order/id as the cursor for paging.
+     * If multiple candidates exist (e.g. from prior duplicate creations),
+     * selects the candidate with the highest score (prioritising channels
+     * containing the index JSON file or non-empty history).
      */
     private suspend fun scanChatListForVaultChannel(): Long? {
-        var offsetOrder  = Long.MAX_VALUE
-        var offsetChatId = 0L
+        val candidateIds = LinkedHashSet<Long>()
 
-        repeat(MAX_SCAN_PAGES) { page ->
-            val result = runCatching {
-                val req = TdApi.GetChats(
-                    TdApi.ChatListMain(),
-                    CHAT_PAGE_SIZE,
-                )
-                client.send(req) as TdApi.Chats
-            }.getOrNull() ?: return null
+        // Strategy 1: Search Telegram servers directly for chats titled "OpenPhotos Vault"
+        runCatching {
+            val res = client.send(TdApi.SearchChatsOnServer(VAULT_CHANNEL_TITLE, 20)) as TdApi.Chats
+            candidateIds.addAll(res.chatIds.toList())
+        }.onFailure { Log.w(TAG, "SearchChatsOnServer failed: ${it.message}") }
 
-            if (result.chatIds.isEmpty()) return null  // exhausted the list
+        // Strategy 2: Search local chat database
+        runCatching {
+            val res = client.send(TdApi.SearchChats(VAULT_CHANNEL_TITLE, 20)) as TdApi.Chats
+            candidateIds.addAll(res.chatIds.toList())
+        }.onFailure { Log.w(TAG, "SearchChats failed: ${it.message}") }
 
-            for (chatId in result.chatIds) {
-                val chat = runCatching {
-                    client.send(TdApi.GetChat(chatId)) as TdApi.Chat
-                }.getOrNull() ?: continue
+        // Strategy 3: Load and scan chat list pages from TDLib
+        repeat(MAX_SCAN_PAGES) {
+            runCatching {
+                client.send(TdApi.LoadChats(TdApi.ChatListMain(), CHAT_PAGE_SIZE))
+            }
+            val chatsResult = runCatching {
+                client.send(TdApi.GetChats(TdApi.ChatListMain(), CHAT_PAGE_SIZE)) as TdApi.Chats
+            }.getOrNull()
 
-                // Only broadcast channels have ChatTypeSupergroup with isChannel = true.
-                val type = chat.type
-                if (type !is TdApi.ChatTypeSupergroup || !type.isChannel) continue
-                if (chat.title != VAULT_CHANNEL_TITLE) continue
+            if (chatsResult != null && chatsResult.chatIds.isNotEmpty()) {
+                candidateIds.addAll(chatsResult.chatIds.toList())
+            }
+        }
 
-                // Title matches — fetch full info to check the About/description.
-                val fullInfo = runCatching {
-                    client.send(TdApi.GetSupergroupFullInfo(type.supergroupId)) as TdApi.SupergroupFullInfo
-                }.getOrNull() ?: continue
+        if (candidateIds.isEmpty()) return null
 
-                if (fullInfo.description == VAULT_CHANNEL_MARKER) {
-                    return chatId   // ✓ both title and marker match
+        var bestChatId: Long? = null
+        var bestScore = -1
+
+        for (chatId in candidateIds) {
+            val chat = runCatching {
+                client.send(TdApi.GetChat(chatId)) as TdApi.Chat
+            }.getOrNull() ?: continue
+
+            val type = chat.type
+            if (type !is TdApi.ChatTypeSupergroup || !type.isChannel) continue
+            if (chat.title != VAULT_CHANNEL_TITLE) continue
+
+            val fullInfo = runCatching {
+                client.send(TdApi.GetSupergroupFullInfo(type.supergroupId)) as TdApi.SupergroupFullInfo
+            }.getOrNull() ?: continue
+
+            val hasMarker = fullInfo.description.contains(VAULT_CHANNEL_MARKER)
+
+            // Check history for score
+            val history = runCatching {
+                val req = TdApi.GetChatHistory().also { r ->
+                    r.chatId = chatId
+                    r.fromMessageId = 0L
+                    r.offset = 0
+                    r.limit = 10
+                    r.onlyLocal = false
                 }
+                client.send(req) as TdApi.Messages
+            }.getOrNull()
+
+            val hasIndexFile = history?.messages?.any { msg ->
+                val content = msg.content
+                content is TdApi.MessageDocument && content.document.fileName == VaultIndex.INDEX_FILENAME
+            } ?: false
+
+            val hasMessages = history?.messages?.isNotEmpty() == true
+
+            var score = 0
+            if (hasMarker && hasIndexFile) {
+                score = 3
+            } else if (hasMarker && hasMessages) {
+                score = 2
+            } else if (hasMarker) {
+                score = 1
+            } else {
+                // Title and channel match, but description marker missing
+                score = 0
             }
 
-            Log.d(TAG, "Scan page $page: ${result.chatIds.size} chats checked, no match yet")
-            // No cursor needed for GetChats — TDLib manages pagination internally
-            // when called repeatedly; break after one scan (TDLib loads lazily).
-            if (result.chatIds.size < CHAT_PAGE_SIZE) return null  // last page
+            if (score > bestScore) {
+                bestScore = score
+                bestChatId = chatId
+                if (score == 3) break // Found the ideal vault channel
+            }
         }
+
+        if (bestChatId != null) {
+            // Repair marker if needed
+            if (bestScore == 0) {
+                runCatching {
+                    client.send(TdApi.SetChatDescription(bestChatId, VAULT_CHANNEL_MARKER))
+                }
+            }
+            return bestChatId
+        }
+
         return null
     }
 
