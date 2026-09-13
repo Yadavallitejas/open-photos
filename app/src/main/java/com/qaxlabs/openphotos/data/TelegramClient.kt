@@ -23,7 +23,7 @@ import kotlin.coroutines.resumeWithException
  * can consume them as a stream without ever touching raw TDLib callbacks.
  */
 @Singleton
-class TelegramClient @Inject constructor() {
+open class TelegramClient @Inject constructor() {
 
     private val _updates = MutableSharedFlow<TdApi.Object>(
         replay = 1,
@@ -36,14 +36,14 @@ class TelegramClient @Inject constructor() {
     @Volatile
     private var client: Client? = null
 
-    val isInitialized: Boolean
+    open val isInitialized: Boolean
         get() = client != null
 
     /**
      * Constructs the native TDLib client and starts the update pump.
      * Must be called once before any [send] calls.
      */
-    fun create() {
+    open fun create() {
         if (client != null) return
         client = Client.create(
             /* updateHandler          */ { update -> _updates.tryEmit(update) },
@@ -56,7 +56,7 @@ class TelegramClient @Inject constructor() {
      * Suspends until TDLib processes [function] and returns its result.
      * Throws [TelegramException] if TDLib returns [TdApi.Error].
      */
-    suspend fun send(function: TdApi.Function<*>): TdApi.Object =
+    open suspend fun send(function: TdApi.Function<*>): TdApi.Object =
         suspendCancellableCoroutine { cont ->
             val c = client
             if (c == null) {

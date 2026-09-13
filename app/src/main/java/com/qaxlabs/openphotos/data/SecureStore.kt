@@ -41,7 +41,7 @@ private val Context.secureDataStore: DataStore<Preferences>
  * Stores: api_id, api_hash, phone_number, tdlib_db_key.
  */
 @Singleton
-class SecureStore @Inject constructor(
+open class SecureStore @Inject constructor(
     @ApplicationContext private val context: Context,
 ) {
     companion object {
@@ -60,7 +60,7 @@ class SecureStore @Inject constructor(
 
     // ── Android Keystore AES-256/GCM key ─────────────────────────────────────
 
-    private val keyStore = KeyStore.getInstance(KEYSTORE_PROVIDER).also { it.load(null) }
+    private val keyStore by lazy { KeyStore.getInstance(KEYSTORE_PROVIDER).also { it.load(null) } }
 
     private fun encryptionKey(): SecretKey {
         if (!keyStore.containsAlias(KEY_ALIAS)) {
@@ -103,12 +103,16 @@ class SecureStore @Inject constructor(
 
     // ── Public API ────────────────────────────────────────────────────────────
 
-    val apiIdFlow: Flow<Int?> = context.secureDataStore.data.map { prefs ->
-        prefs[KEY_API_ID]?.let { runCatching { decrypt(it).toIntOrNull() }.getOrNull() }
+    val apiIdFlow: Flow<Int?> by lazy {
+        context.secureDataStore.data.map { prefs ->
+            prefs[KEY_API_ID]?.let { runCatching { decrypt(it).toIntOrNull() }.getOrNull() }
+        }
     }
 
-    val apiHashFlow: Flow<String?> = context.secureDataStore.data.map { prefs ->
-        prefs[KEY_API_HASH]?.let { runCatching { decrypt(it) }.getOrNull() }
+    val apiHashFlow: Flow<String?> by lazy {
+        context.secureDataStore.data.map { prefs ->
+            prefs[KEY_API_HASH]?.let { runCatching { decrypt(it) }.getOrNull() }
+        }
     }
 
     suspend fun setApiId(apiId: Int) {
@@ -178,15 +182,15 @@ class SecureStore @Inject constructor(
      * (FR-INDEX-0). Cached here so [VaultChannelRepository] avoids a chat-list
      * scan on every cold start.
      */
-    suspend fun getVaultChannelId(): Long? =
+    open suspend fun getVaultChannelId(): Long? =
         context.secureDataStore.data.first()[KEY_VAULT_CHANNEL_ID]
             ?.let { decrypt(it).toLongOrNull() }
 
-    suspend fun setVaultChannelId(id: Long) {
+    open suspend fun setVaultChannelId(id: Long) {
         context.secureDataStore.edit { it[KEY_VAULT_CHANNEL_ID] = encrypt(id.toString()) }
     }
 
-    suspend fun clearVaultChannelId() {
+    open suspend fun clearVaultChannelId() {
         context.secureDataStore.edit { it.remove(KEY_VAULT_CHANNEL_ID) }
     }
 
